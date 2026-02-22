@@ -1,0 +1,186 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local Camera = workspace.CurrentCamera
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+
+-- [[ SETTINGS ]] --
+local BASE_SPEED = 16
+local EXTRA_SPEED = 6.56
+local SLOW_DOWN_PENALTY = 3 -- ลดความเร็ว 3 หน่วยตอนเหนื่อย
+local MAX_STAMINA = 100
+local stamina = MAX_STAMINA
+local DRAIN_RATE = 15.9
+local RECOVER_RATE = 7 -- ความเร็วในการฟื้นฟู
+local RECOVER_DELAY = 1.0
+local MIN_STAMINA_TO_SPRINT = 5
+
+-- [[ GUI SETUP ]] --
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "DoorsSprintFX_Final"
+screenGui.ResetOnSpawn = false
+screenGui.IgnoreGuiInset = true -- ให้ Vignette เต็มจอ
+screenGui.Parent = player:WaitForChild("PlayerGui")
+
+-- Stamina Bar (ขยับมาชิดขวา)
+local staminaFrame = Instance.new("Frame")
+staminaFrame.Size = UDim2.new(0, 150, 0, 5)
+staminaFrame.AnchorPoint = Vector2.new(1, 1)
+staminaFrame.Position = UDim2.new(1, -30, 1, -20)
+staminaFrame.BackgroundColor3 = Color3.fromRGB(30,30,30)
+staminaFrame.BorderSizePixel = 2
+staminaFrame.BorderColor3 = Color3.new(0,0,0)
+staminaFrame.Parent = screenGui
+Instance.new("UICorner", staminaFrame).CornerRadius = UDim.new(0, 3)
+
+local fill = Instance.new("Frame")
+fill.Size = UDim2.new(1, 0, 1, 0)
+fill.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+fill.BorderSizePixel = 0
+fill.Parent = staminaFrame
+Instance.new("UICorner", fill).CornerRadius = UDim.new(0, 3)
+
+-- ปุ่ม Sprint (ขยับขวา + มีคำว่า Sprint)
+local sprintButton = Instance.new("ImageButton")
+sprintButton.Size = UDim2.new(0, 75, 0, 75)
+sprintButton.AnchorPoint = Vector2.new(1, 1)
+sprintButton.Position = UDim2.new(1, -25, 1, -150)
+sprintButton.BackgroundColor3 = Color3.new(0,0,0)
+sprintButton.BackgroundTransparency = 0.5
+sprintButton.Visible = UserInputService.TouchEnabled
+sprintButton.Parent = screenGui
+Instance.new("UICorner", sprintButton).CornerRadius = UDim.new(1, 0)
+
+local iconLabel = Instance.new("TextLabel", sprintButton)
+iconLabel.Size = UDim2.new(1, 0, 1, 0)
+iconLabel.BackgroundTransparency = 1
+iconLabel.Text = "Sprint"
+iconLabel.Font = Enum.Font.Oswald
+iconLabel.TextSize = 22
+iconLabel.TextColor3 = Color3.new(1,1,1)
+
+-- Vignette (ขอบดำชิดขอบ)
+local vignette = Instance.new("Frame")
+vignette.Size = UDim2.new(1,0,1,0)
+vignette.BackgroundColor3 = Color3.new(0,0,0)
+vignette.BackgroundTransparency = 1
+vignette.BorderSizePixel = 0
+vignette.ZIndex = 1
+vignette.Parent = screenGui
+
+-- Tired Text (ขนาดใหญ่พิเศษ 42 + Oswald Font)
+local tiredText = Instance.new("TextLabel")
+tiredText.Size = UDim2.new(1, 0, 0, 100)
+tiredText.Position = UDim2.new(0, 0, 0.65, 0)
+tiredText.BackgroundTransparency = 1
+tiredText.Text = "YOU ARE EXHAUSTED"
+tiredText.Font = Enum.Font.Oswald
+tiredText.TextSize = 42
+tiredText.TextColor3 = Color3.fromRGB(255, 180, 50)
+tiredText.TextTransparency = 1
+tiredText.ZIndex = 11
+tiredText.Parent = screenGui
+
+-- [[ STATE ]] --
+local isSprinting = false
+local lastStopSprintTime = tick()
+local canSprint = true
+local NORMAL_FOV = 70
+local SPRINT_FOV = 95
+local FOV_CHANGE_SPEED = 7
+local targetFOV = NORMAL_FOV
+
+-- [[ FUNCTIONS ]] --
+local function updateUI()
+	local ratio = math.clamp(stamina / MAX_STAMINA, 0, 1)
+	fill.Size = UDim2.new(ratio, 0, 1, 0)
+
+	-- Vignette ดำชิดขอบเมื่อต่ำกว่า 50%
+	if ratio < 0.5 then
+		vignette.BackgroundTransparency = 1 - ((0.5 - ratio) * 1.4)
+	else
+		vignette.BackgroundTransparency = 1
+	end
+end
+
+local function showTiredText()
+	tiredText.TextTransparency = 1
+	TweenService:Create(tiredText, TweenInfo.new(0.4), {TextTransparency = 0}):Play()
+	task.wait(2)
+	TweenService:Create(tiredText, TweenInfo.new(0.8), {TextTransparency = 1}):Play()
+end
+
+local function startSprint()
+	if stamina > MIN_STAMINA_TO_SPRINT and not isSprinting and canSprint then
+		isSprinting = true
+		targetFOV = SPRINT_FOV
+	end
+end
+
+local function stopSprint()
+	if isSprinting then
+		isSprinting = false
+		lastStopSprintTime = tick()
+		targetFOV = NORMAL_FOV
+	end
+end
+
+-- [[ INPUT ]] --
+UserInputService.InputBegan:Connect(function(input, gpe)
+	if gpe then return end
+	if input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.LeftControl then startSprint() end
+end)
+UserInputService.InputEnded:Connect(function(input)
+	if input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.LeftControl then stopSprint() end
+end)
+
+sprintButton.MouseButton1Down:Connect(startSprint)
+sprintButton.MouseButton1Up:Connect(stopSprint)
+
+-- [[ MAIN LOOP ]] --
+RunService.RenderStepped:Connect(function(dt)
+	local move = humanoid.MoveDirection
+	
+	-- FOV Smoothing
+	Camera.FieldOfView += (targetFOV - Camera.FieldOfView) * dt * FOV_CHANGE_SPEED
+
+	if isSprinting and stamina > 0 and move.Magnitude > 0 then
+		stamina = math.max(0, stamina - DRAIN_RATE * dt)
+		character:TranslateBy(move * dt * EXTRA_SPEED)
+		
+		if stamina <= 0 then
+			stamina = 0
+			stopSprint()
+			canSprint = false -- ล็อคไม่ให้วิ่ง
+			task.spawn(showTiredText)
+		end
+	else
+		-- กรณีเหนื่อย (Stamina Lock) จะเดินช้าลง 3 หน่วย
+		if not canSprint and move.Magnitude > 0 then
+			character:TranslateBy(move * dt * -SLOW_DOWN_PENALTY)
+		end
+
+		-- การฟื้น Stamina
+		if tick() - lastStopSprintTime >= RECOVER_DELAY then
+			stamina = math.min(MAX_STAMINA, stamina + RECOVER_RATE * dt)
+			
+			-- ต้องรอให้เต็ม 100 ถึงจะวิ่งได้ใหม่
+			if stamina >= MAX_STAMINA then
+				canSprint = true
+			end
+		end
+	end
+	
+	updateUI()
+end)
+
+player.CharacterAdded:Connect(function(char)
+	character = char
+	humanoid = char:WaitForChild("Humanoid")
+end)
+
+updateUI()

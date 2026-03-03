@@ -11,7 +11,7 @@ local humanoid = character:WaitForChild("Humanoid")
 -- [[ SETTINGS ]] --
 local BASE_SPEED = 16
 local EXTRA_SPEED = 6.56
-local SLOW_DOWN_PENALTY = 8 -- ลดความเร็ว 3 หน่วยตอนเหนื่อย
+local SLOW_DOWN_PENALTY = 9 -- ลดความเร็ว 3 หน่วยตอนเหนื่อย
 local MAX_STAMINA = 100
 local stamina = MAX_STAMINA
 local DRAIN_RATE = 15.9
